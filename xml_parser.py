@@ -14,7 +14,7 @@ class XMLParser():
 
     def __init__(self, tokenizer:object = None):
         self.tokenizer = tokenizer
-        self.tag_pattern = re.compile("<(/*?[-a-zA-Z]+)>")
+        self.tag_pattern = re.compile(r'<(\/?[\w-]+)(?:(?:[\w ]+=\s*"[-\w_#@$%&/(/)/+=]+"\s*)*)>')
         self.BEGIN_TAG = 0
         self.END_TAG = 1
 
@@ -33,23 +33,22 @@ class XMLParser():
 
         # Mark validity of all XML markers found in the document
         for i,match in enumerate(all_tag_matches): 
+
             tag_name = match.groups()[0].lstrip("/")
             tag_type = self.END_TAG if match.groups()[0].startswith("/") else self.BEGIN_TAG
 
             markers.append((tag_name, tag_type, match.start(), match.end()))
-
+            
             # Every marker is considered invalid initially
             is_valid += [0]
 
             if tag_type==self.END_TAG:
                 # Start scanning the buffer for the begin tag from the end
                 k=-1 
-                
                 try:
                     while buffer[k][0]!=tag_name:
                         k-=1
                 except IndexError:
-
                     # No begin tag is found in the buffer for the current end tag
                     raise ParseError(match.start(), match.end(), msg=f"<{tag_name}> not found for </{tag_name}>")
 
@@ -63,9 +62,9 @@ class XMLParser():
 
             else:
                 buffer.append((tag_name, i))
-        
-        markers = [marker for validity, marker in zip(is_valid, markers) if validity==1]
 
+        markers = [marker for validity, marker in zip(is_valid, markers) if validity==1]
+        
         # annotations => {"entity1":[ [start_token_idx, end_token_idx], ...], ...}
         annotations = defaultdict(list)
 
@@ -89,10 +88,22 @@ class XMLParser():
 
             doc_tokens.extend(tokens)
 
+            # For a particular tag type, if there's a begin tag, create a new annotation with a start position
             if tag_type==self.BEGIN_TAG:
                 annotations[tag].append([start_pos])
+
+            # For a particular tag type, if there's an end tag, 
+            # find the first annotation from the end which is missing an end tag and update that annotation with the end tag
             elif tag_type==self.END_TAG:
-                annotations[tag][-1].append(total_num_tokens-1)
+                l = 0
+                n = len(annotations[tag])
+                while True:
+                    incomplete_annotation = annotations[tag][n-l-1]
+                    if len(incomplete_annotation)==1:
+                        incomplete_annotation.append(total_num_tokens-1)
+                        break
+                    else:
+                        l+=1
 
             start_pos += num_tokens
             total_num_tokens += num_tokens
